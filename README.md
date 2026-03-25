@@ -10,9 +10,10 @@ with live transport and activity data.
 npm install
 ```
 
-2) Add your API key:
+2) Add your API keys:
 ```
 OPENAI_API_KEY=sk-...
+GOOGLE_MAPS_API_KEY=your_key
 ```
 Create `./.env.local` with the key above.
 
@@ -25,5 +26,5 @@ Open http://localhost:3000
 
 ## Notes
 
-- Live data adapters (flights, routes, places) are stubbed. Configure providers
-  in `src/app/api/chat/route.ts`.
+- Routes use Google Maps Directions and places use Google Maps Places. Add your
+  Google Maps API key in `.env.local`.

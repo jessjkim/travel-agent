@@ -59,6 +59,8 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+const googleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY;
+
 const systemPrompt = `
 You are a travel planning agent that drafts itineraries and asks smart follow-ups.
 
@@ -90,33 +92,8 @@ const tools: OpenAI.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
-      name: "flight_search",
-      description: "Search flights for a city pair and date",
-      parameters: {
-        type: "object",
-        properties: {
-          origin: { type: "string" },
-          destination: { type: "string" },
-          depart_date: { type: "string" },
-          return_date: { type: "string" },
-          adults: { type: "integer", default: 1 },
-          cabin: {
-            type: "string",
-            enum: ["economy", "premium_economy", "business", "first"],
-          },
-          max_stops: { type: "integer", default: 1 },
-          currency: { type: "string", default: "USD" },
-          limit: { type: "integer", default: 5 },
-        },
-        required: ["origin", "destination", "depart_date"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
       name: "route_search",
-      description: "Multi-modal routes with time/cost",
+      description: "Routes with travel time using Google Maps Directions",
       parameters: {
         type: "object",
         properties: {
@@ -128,7 +105,6 @@ const tools: OpenAI.ChatCompletionTool[] = [
             type: "string",
             enum: ["train", "bus", "ferry", "car", "mixed"],
           },
-          currency: { type: "string", default: "USD" },
           limit: { type: "integer", default: 5 },
         },
         required: ["origin", "destination", "date"],
@@ -178,35 +154,193 @@ function safeParseJSON(content: string | null) {
   }
 }
 
+function parseLatLng(value: string | undefined) {
+  if (!value) return null;
+  const match = value.match(/^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/);
+  if (!match) return null;
+  return { lat: Number(match[1]), lng: Number(match[3]) };
+}
+
+function mapMode(mode: string) {
+  if (mode === "car") return "driving";
+  if (mode === "train" || mode === "bus" || mode === "ferry") return "transit";
+  return "transit";
+}
+
+async function routeSearchAdapter(args: Record<string, unknown>) {
+  if (!googleMapsApiKey) {
+    throw new Error("Missing GOOGLE_MAPS_API_KEY.");
+  }
+
+  const {
+    origin,
+    destination,
+    date,
+    time,
+    mode = "mixed",
+    limit = 5,
+  } = args as {
+    origin: string;
+    destination: string;
+    date: string;
+    time?: string;
+    mode?: string;
+    limit?: number;
+  };
+
+  const directionsMode = mapMode(mode);
+  const departureTime = date
+    ? Math.floor(
+        new Date(`${date}T${time ?? "09:00"}:00`).getTime() / 1000
+      )
+    : undefined;
+
+  const params = new URLSearchParams({
+    origin,
+    destination,
+    mode: directionsMode,
+    key: googleMapsApiKey,
+  });
+
+  if (departureTime) {
+    params.set("departure_time", String(departureTime));
+  }
+
+  const response = await fetch(
+    `https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Google Directions failed (${response.status}): ${errorText}`
+    );
+  }
+
+  const data = (await response.json()) as {
+    routes?: Array<{
+      summary?: string;
+      legs?: Array<{
+        duration?: { value: number };
+        start_address?: string;
+        end_address?: string;
+      }>;
+    }>;
+  };
+
+  const items =
+    data?.routes?.slice(0, limit).map((route, index) => {
+      const leg = route.legs?.[0];
+      const durationMinutes =
+        typeof leg?.duration?.value === "number"
+          ? Math.round(leg.duration.value / 60)
+          : null;
+      return {
+        id: `gmap-${index}`,
+        type: "route",
+        title: route.summary ?? `${origin} → ${destination}`,
+        price: null,
+        duration_minutes: durationMinutes,
+        depart_at: null,
+        arrive_at: null,
+        stops: null,
+        provider: "Google Maps",
+        deep_link: null,
+        meta: {
+          start_address: leg?.start_address ?? null,
+          end_address: leg?.end_address ?? null,
+          mode: directionsMode,
+        },
+      };
+    }) ?? [];
+
+  return { items };
+}
+
+async function placeSearchAdapter(args: Record<string, unknown>) {
+  if (!googleMapsApiKey) {
+    throw new Error("Missing GOOGLE_MAPS_API_KEY.");
+  }
+
+  const {
+    query,
+    location,
+    radius_km = 10,
+    limit = 10,
+  } = args as {
+    query: string;
+    location?: string;
+    radius_km?: number;
+    limit?: number;
+  };
+
+  const latLng = parseLatLng(location);
+  const params = new URLSearchParams({
+    key: googleMapsApiKey,
+  });
+
+  if (latLng) {
+    params.set("query", query);
+    params.set("location", `${latLng.lat},${latLng.lng}`);
+    params.set("radius", String(radius_km * 1000));
+  } else {
+    params.set("query", location ? `${query} in ${location}` : query);
+  }
+
+  const response = await fetch(
+    `https://maps.googleapis.com/maps/api/place/textsearch/json?${params.toString()}`
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Google Places failed (${response.status}): ${errorText}`
+    );
+  }
+
+  const data = (await response.json()) as {
+    results?: Array<{
+      place_id: string;
+      name: string;
+      formatted_address?: string;
+      rating?: number;
+      user_ratings_total?: number;
+      geometry?: { location?: { lat: number; lng: number } };
+    }>;
+  };
+
+  const items =
+    data?.results?.slice(0, limit).map((place) => ({
+      id: place.place_id,
+      type: "place",
+      title: place.name,
+      price: null,
+      duration_minutes: null,
+      depart_at: null,
+      arrive_at: null,
+      stops: null,
+      provider: "Google Maps",
+      deep_link: null,
+      meta: {
+        address: place.formatted_address ?? null,
+        rating: place.rating ?? null,
+        ratings_count: place.user_ratings_total ?? null,
+        location: place.geometry?.location ?? null,
+      },
+    })) ?? [];
+
+  return { items };
+}
+
 async function handleToolCall(
   toolName: string,
   args: Record<string, unknown>
 ) {
   switch (toolName) {
-    case "flight_search":
-      return {
-        items: [],
-        meta: {
-          note: "Configure Amadeus or Duffel to enable live flight search.",
-          args,
-        },
-      };
     case "route_search":
-      return {
-        items: [],
-        meta: {
-          note: "Configure Rome2rio for multi-modal routes.",
-          args,
-        },
-      };
+      return await routeSearchAdapter(args);
     case "place_search":
-      return {
-        items: [],
-        meta: {
-          note: "Configure Google Places or Mapbox for POI results.",
-          args,
-        },
-      };
+      return await placeSearchAdapter(args);
     default:
       return { items: [], meta: { note: "Unknown tool call.", args } };
   }
@@ -262,7 +396,20 @@ export async function POST(request: Request) {
       for (const toolCall of assistantMessage.tool_calls) {
         const toolName = toolCall.function.name;
         const args = safeParseJSON(toolCall.function.arguments) ?? {};
-        const toolResult = await handleToolCall(toolName, args);
+        let toolResult: unknown;
+        try {
+          toolResult = await handleToolCall(toolName, args);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Tool call failed.";
+          toolResult = {
+            items: [],
+            meta: {
+              note: message,
+              args,
+            },
+          };
+        }
         workingMessages.push({
           role: "tool",
           tool_call_id: toolCall.id,
