@@ -4,8 +4,6 @@ An AI travel planning web app that gathers trip constraints, drafts a high-level
 route, and then refines the plan with live transport times and activity data
 from tool calls.
 
-
-
 ## How the AI agent works
 
 This app uses a single LLM (OpenAI GPT-4o) as an "agent" that can call tools.
