@@ -175,6 +175,28 @@
   box-shadow: none;
 }
 
+.secondaryButton {
+  margin-top: 16px;
+  background: rgba(21, 21, 21, 0.08);
+  color: var(--ink);
+  border: 1px solid rgba(21, 21, 21, 0.12);
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.secondaryButton:hover {
+  transform: translateY(-1px);
+}
+
+.secondaryButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .routeList,
 .itineraryList,
 .infoList {

@@ -68,6 +68,42 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const handleExportCsv = () => {
+    if (uiState.itinerary.length === 0) return;
+    const rows = [["Date", "City", "Time", "Activity", "Type"]];
+    uiState.itinerary.forEach((day) => {
+      if (day.activities.length === 0) {
+        rows.push([day.date ?? "", day.city, "", "Free time", "rest"]);
+        return;
+      }
+      day.activities.forEach((activity) => {
+        rows.push([
+          day.date ?? "",
+          day.city,
+          activity.time ?? "",
+          activity.title,
+          activity.type ?? "",
+        ]);
+      });
+    });
+
+    const csvContent = rows
+      .map((row) =>
+        row
+          .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "itinerary.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmed = input.trim();
@@ -273,6 +309,14 @@ export default function Home() {
               ))}
             </div>
           )}
+          <button
+            className={styles.secondaryButton}
+            type="button"
+            onClick={handleExportCsv}
+            disabled={uiState.itinerary.length === 0}
+          >
+            Export to CSV
+          </button>
         </div>
       </section>
     </div>
