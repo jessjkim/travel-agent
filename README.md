@@ -1,7 +1,8 @@
 # Travel Agent
 
-An AI travel planning web app that drafts a high-level route first, then refines
-with live transport and activity data.
+An AI travel planning web app that gathers trip constraints, drafts a high-level
+route, and then refines the plan with live transport times and activity data
+from tool calls.
 
 ## How the AI agent works
 
