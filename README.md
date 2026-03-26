@@ -1,4 +1,4 @@
-# Voyage Agent
+# Travel Agent
 
 An AI travel planning web app that drafts a high-level route first, then refines
 with live transport and activity data.
