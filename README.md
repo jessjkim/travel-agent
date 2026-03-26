@@ -4,6 +4,8 @@ An AI travel planning web app that gathers trip constraints, drafts a high-level
 route, and then refines the plan with live transport times and activity data
 from tool calls.
 
+
+
 ## How the AI agent works
 
 This app uses a single LLM (OpenAI GPT-4o) as an "agent" that can call tools.
@@ -11,16 +13,8 @@ The agent is instructed to:
 
 - Collect trip constraints and propose a high-level route first.
 - Ask for confirmation before making live data calls.
-- Use tool calls for grounding (travel times and places) after confirmation.
-- Always return a structured `ui_state` JSON so the UI updates predictably.
-
-The backend orchestrates the loop:
-
-1) User sends a message to `/api/chat`.
-2) The server calls the LLM with tool schemas.
-3) If the LLM requests a tool, the server runs it and feeds results back.
-4) The LLM returns `{ reply, ui_state }`.
-5) The UI renders the updated route, itinerary, and trip snapshot.
+- Use tool calls for travel times and places after confirmation.
+- Display itinerary
 
 ## Tools used
 
@@ -28,9 +22,6 @@ The agent uses tool calling to access external data:
 
 - `route_search`: Google Maps Directions API for travel time between cities.
 - `place_search`: Google Maps Places Text Search for activities/POIs.
-
-Note: Google Maps does not provide flight pricing. Flights are out of scope for
-this MVP and can be added later with a dedicated flight API.
 
 ## Getting started
 
