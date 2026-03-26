@@ -69,6 +69,7 @@ Rules:
 - Always include a full ui_state object in your response.
 - Start with a high-level route (city order + days) before calling external tools.
 - Use tools only after the user confirms the route or explicitly asks for prices/times.
+- Always keep ui_state.itinerary populated. If you don't have tool data yet, add a draft day-by-day plan using best judgment.
 - Keep replies concise and actionable.
 
 The ui_state schema:
@@ -202,6 +203,14 @@ async function routeSearchAdapter(args: Record<string, unknown>) {
     key: googleMapsApiKey,
   });
 
+  console.info("Google Directions request", {
+    origin,
+    destination,
+    mode: directionsMode,
+    date,
+    time,
+  });
+
   if (departureTime) {
     params.set("departure_time", String(departureTime));
   }
@@ -210,14 +219,9 @@ async function routeSearchAdapter(args: Record<string, unknown>) {
     `https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`
   );
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `Google Directions failed (${response.status}): ${errorText}`
-    );
-  }
-
   const data = (await response.json()) as {
+    status?: string;
+    error_message?: string;
     routes?: Array<{
       summary?: string;
       legs?: Array<{
@@ -227,6 +231,17 @@ async function routeSearchAdapter(args: Record<string, unknown>) {
       }>;
     }>;
   };
+
+  if (!response.ok || (data.status && data.status !== "OK")) {
+    console.error("Google Directions error", {
+      httpStatus: response.status,
+      status: data.status,
+      error: data.error_message,
+    });
+    throw new Error(
+      `Google Directions failed (${response.status}): ${data.error_message ?? "Unknown error"}`
+    );
+  }
 
   const items =
     data?.routes?.slice(0, limit).map((route, index) => {
@@ -279,6 +294,12 @@ async function placeSearchAdapter(args: Record<string, unknown>) {
     key: googleMapsApiKey,
   });
 
+  console.info("Google Places request", {
+    query,
+    location: location ?? null,
+    radius_km,
+  });
+
   if (latLng) {
     params.set("query", query);
     params.set("location", `${latLng.lat},${latLng.lng}`);
@@ -291,14 +312,9 @@ async function placeSearchAdapter(args: Record<string, unknown>) {
     `https://maps.googleapis.com/maps/api/place/textsearch/json?${params.toString()}`
   );
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `Google Places failed (${response.status}): ${errorText}`
-    );
-  }
-
   const data = (await response.json()) as {
+    status?: string;
+    error_message?: string;
     results?: Array<{
       place_id: string;
       name: string;
@@ -308,6 +324,17 @@ async function placeSearchAdapter(args: Record<string, unknown>) {
       geometry?: { location?: { lat: number; lng: number } };
     }>;
   };
+
+  if (!response.ok || (data.status && data.status !== "OK")) {
+    console.error("Google Places error", {
+      httpStatus: response.status,
+      status: data.status,
+      error: data.error_message,
+    });
+    throw new Error(
+      `Google Places failed (${response.status}): ${data.error_message ?? "Unknown error"}`
+    );
+  }
 
   const items =
     data?.results?.slice(0, limit).map((place) => ({
@@ -385,6 +412,7 @@ export async function POST(request: Request) {
       messages: workingMessages,
       tools,
       tool_choice: "auto",
+      response_format: { type: "json_object" },
       temperature: 0.3,
     });
 
